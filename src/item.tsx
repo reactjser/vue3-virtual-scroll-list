@@ -1,99 +1,100 @@
-import { defineComponent, h } from 'vue';
+import {
+  computed,
+  defineComponent,
+  onMounted,
+  onUnmounted,
+  onUpdated,
+  ref,
+  Ref,
+} from 'vue';
+// TODO: remove this
 import emitter from 'tiny-emitter/instance';
 import { ItemProps, SlotProps } from './props';
 
-const Wrapper = {
-  created() {
-    this.shapeKey = this.horizontal ? 'offsetWidth' : 'offsetHeight';
-  },
+const useResizeChange = (props: any, rootRef: Ref<HTMLElement | null>) => {
+  let resizeObserver: ResizeObserver | null = null;
+  const shapeKey = computed(() =>
+    props.horizontal ? 'offsetWidth' : 'offsetHeight',
+  );
 
-  mounted() {
+  const getCurrentSize = () => {
+    return rootRef.value ? rootRef.value[shapeKey.value] : 0;
+  };
+
+  // tell parent current size identify by unqiue key
+  const dispatchSizeChange = () => {
+    const { event, uniqueKey, hasInitial } = props;
+    console.log(getCurrentSize());
+    emitter.emit(event, uniqueKey, getCurrentSize(), hasInitial);
+  };
+
+  onMounted(() => {
     if (typeof ResizeObserver !== 'undefined') {
-      this.resizeObserver = new ResizeObserver(() => {
-        this.dispatchSizeChange();
+      resizeObserver = new ResizeObserver(() => {
+        dispatchSizeChange();
       });
-      this.resizeObserver.observe(this.$el);
+      rootRef.value && resizeObserver.observe(rootRef.value);
     }
-  },
+  });
 
-  // since componet will be reused, so disptach when updated
-  updated() {
-    this.dispatchSizeChange();
-  },
+  onUpdated(() => {
+    dispatchSizeChange();
+  });
 
-  beforeDestroy() {
-    if (this.resizeObserver) {
-      this.resizeObserver.disconnect();
-      this.resizeObserver = null;
+  onUnmounted(() => {
+    if (resizeObserver) {
+      resizeObserver.disconnect();
+      resizeObserver = null;
     }
-  },
-
-  methods: {
-    getCurrentSize() {
-      return this.$el ? this.$el[this.shapeKey] : 0;
-    },
-
-    // tell parent current size identify by unqiue key
-    dispatchSizeChange() {
-      emitter.emit(
-        this.event,
-        this.uniqueKey,
-        this.getCurrentSize(),
-        this.hasInitial,
-      );
-      // this.$parent.$emit(this.event, this.uniqueKey, this.getCurrentSize(), this.hasInitial)
-    },
-  },
+  });
 };
 
 export const Item = defineComponent({
   name: 'VirtualListItem',
-  mixins: [Wrapper],
   props: ItemProps,
-  render() {
-    const {
-      tag,
-      component,
-      extraProps = {},
-      index,
-      source,
-      scopedSlots = {},
-      uniqueKey,
-    } = this;
-    const props = {
-      ...extraProps,
-      source,
-      index,
-    };
+  setup(props) {
+    const rootRef = ref<HTMLElement | null>(null);
+    useResizeChange(props, rootRef);
 
-    return h(
-      tag,
-      {
-        key: uniqueKey,
-      },
-      [
-        h(component, {
-          ...props,
-          scopedSlots: scopedSlots,
-        }),
-      ],
-    );
+    return () => {
+      const {
+        tag: Tag,
+        component: Comp,
+        extraProps = {},
+        index,
+        source,
+        scopedSlots = {},
+        uniqueKey,
+      } = props;
+      const mergedProps = {
+        ...extraProps,
+        source,
+        index,
+      };
+
+      return (
+        <Tag key={uniqueKey} ref={rootRef}>
+          <Comp {...mergedProps} scopedSlots={scopedSlots} />
+        </Tag>
+      );
+    };
   },
 });
 
 export const Slot = defineComponent({
-  mixins: [Wrapper],
+  name: 'VirtualListSlot',
   props: SlotProps,
   setup(props, { slots }) {
-    return () => {
-      const { tag, uniqueKey } = props;
+    const rootRef = ref<HTMLElement | null>(null);
+    useResizeChange(props, rootRef);
 
-      return h(
-        tag,
-        {
-          key: uniqueKey,
-        },
-        slots.default(),
+    return () => {
+      const { tag: Tag, uniqueKey } = props;
+
+      return (
+        <Tag ref={rootRef} key={uniqueKey}>
+          {slots.default?.()}
+        </Tag>
       );
     };
   },

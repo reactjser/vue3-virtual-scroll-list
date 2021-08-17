@@ -2,6 +2,8 @@
  * props declaration for default, item and slot component
  */
 
+import { PropType } from 'vue';
+
 export const VirtualProps = {
   dataKey: {
     type: [String, Function],
@@ -30,7 +32,7 @@ export const VirtualProps = {
   },
 
   direction: {
-    type: String,
+    type: String as PropType<'vertical' | 'horizontal'>,
     default: 'vertical', // the other value is horizontal
   },
   start: {

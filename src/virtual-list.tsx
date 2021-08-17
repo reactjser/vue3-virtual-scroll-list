@@ -1,46 +1,69 @@
-import { defineComponent, h, onBeforeMount, onMounted, ref, watch } from 'vue';
-import emitter from 'tiny-emitter/instance';
-import { VirtualProps } from './props';
+import {
+  computed,
+  defineComponent,
+  h,
+  onActivated,
+  onBeforeMount,
+  onMounted,
+  ref,
+  watch,
+} from 'vue';
 import Virtual from './virtual';
 import { Item, Slot } from './item';
+import { VirtualProps } from './props';
+// TODO: remove this
+import emitter from 'tiny-emitter/instance';
 
-const EVENT_TYPE = {
-  ITEM: 'item_resize',
-  SLOT: 'slot_resize',
-};
-const SLOT_TYPE = {
-  HEADER: 'thead', // string value also use for aria role attribute
-  FOOTER: 'tfoot',
-};
+enum EVENT_TYPE {
+  ITEM = 'item_resize',
+  SLOT = 'slot_resize',
+}
+
+enum SLOT_TYPE {
+  HEADER = 'thead', // string value also use for aria role attribute
+  FOOTER = 'tfoot',
+}
 
 export default defineComponent({
   name: 'VirtualList',
-  inheritAttrs: true,
   props: VirtualProps,
   setup(props, { emit, slots, expose }) {
+    // TODO: TS
     const range = ref<any>(null);
-    const isHorizontal = ref(props.direction === 'horizontal');
-    const directionKey = ref(isHorizontal.value ? 'scrollLeft' : 'scrollTop');
-    const shepherd = ref();
-    let virtual: any = null;
-    const root = ref();
+    const root = ref<HTMLElement | null>();
+    const shepherd = ref<HTMLDivElement | null>(null);
+    const isHorizontal = computed(() => props.direction === 'horizontal');
+    const directionKey = computed(() =>
+      isHorizontal.value ? 'scrollLeft' : 'scrollTop',
+    );
+    let virtual: Virtual;
 
     /**
      * watch
      */
     watch(
-      () => props.dataSources?.length,
+      () => props.dataSources.length,
       () => {
         virtual.updateParam('uniqueIds', getUniqueIdFromDataSources());
         virtual.handleDataSourcesChange();
       },
     );
-
+    watch(
+      () => props.keeps,
+      (newValue) => {
+        virtual.updateParam('keeps', newValue);
+        virtual.handleSlotSizeChange();
+      },
+    );
     watch(
       () => props.start,
       (newValue) => {
         scrollToIndex(newValue);
       },
+    );
+    watch(
+      () => props.offset,
+      (newValue) => scrollToOffset(newValue),
     );
 
     /**
@@ -178,23 +201,21 @@ export default defineComponent({
               : dataSource[dataKey];
           if (typeof uniqueKey === 'string' || typeof uniqueKey === 'number') {
             slots.push(
-              h(Item, {
-                // props: {
-                index,
-                tag: itemTag,
-                event: EVENT_TYPE.ITEM,
-                horizontal: isHorizontal.value,
-                uniqueKey: uniqueKey,
-                source: dataSource,
-                extraProps: extraProps,
-                component: dataComponent,
-                scopedSlots: itemScopedSlots,
-                // },
-                style: itemStyle,
-                class: `${itemClass}${
+              <Item
+                index={index}
+                tag={itemTag}
+                event={EVENT_TYPE.ITEM}
+                horizontal={isHorizontal.value}
+                uniqueKey={uniqueKey}
+                source={dataSource}
+                extraProps={extraProps}
+                component={dataComponent}
+                scopedSlots={itemScopedSlots}
+                style={itemStyle}
+                class={`${itemClass}${
                   props.itemClassAdd ? ' ' + props.itemClassAdd(index) : ''
-                }`,
-              }),
+                }`}
+              />,
             );
           } else {
             console.warn(
@@ -207,11 +228,15 @@ export default defineComponent({
       }
       return slots;
     };
-    const onItemResized = (id, size) => {
+
+    // event called when each item mounted or size changed
+    const onItemResized = (id: string, size: number) => {
       virtual.saveSize(id, size);
       emit('resized', id, size);
     };
-    const onSlotResized = (type, size, hasInit) => {
+
+    // event called when slot mounted or size changed
+    const onSlotResized = (type: SLOT_TYPE, size: number, hasInit: boolean) => {
       if (type === SLOT_TYPE.HEADER) {
         virtual.updateParam('slotHeaderSize', size);
       } else if (type === SLOT_TYPE.FOOTER) {
@@ -224,16 +249,23 @@ export default defineComponent({
     };
 
     /**
-     * lifecycles
+     * life cycles
      */
     onBeforeMount(() => {
       installVirtual();
 
+      // listen item size change
       emitter.on(EVENT_TYPE.ITEM, onItemResized);
 
+      // listen slot size change
       if (slots.header || slots.footer) {
         emitter.on(EVENT_TYPE.SLOT, onSlotResized);
       }
+    });
+
+    // set back offset when awake from keep-alive
+    onActivated(() => {
+      scrollToOffset(virtual.offset);
     });
 
     onMounted(() => {
@@ -291,8 +323,8 @@ export default defineComponent({
     return () => {
       const {
         pageMode,
-        rootTag,
-        wrapTag,
+        rootTag: RootTag,
+        wrapTag: WrapTag,
         wrapClass,
         wrapStyle,
         headerTag,
@@ -313,66 +345,48 @@ export default defineComponent({
         : paddingStyle;
       const { header, footer } = slots;
 
-      return h(
-        rootTag,
-        {
-          ref: root,
-          onScroll: !pageMode && onScroll,
-        },
-        [
-          // header slot
-          header
-            ? h(
-                Slot,
-                {
-                  class: headerClass,
-                  style: headerStyle,
-                  // props: {
-                  tag: headerTag,
-                  event: EVENT_TYPE.SLOT,
-                  uniqueKey: SLOT_TYPE.HEADER,
-                  // },
-                },
-                header,
-              )
-            : null,
+      return (
+        <RootTag ref={root} onScroll={!pageMode && onScroll}>
+          {/* header slot */}
+          {header && (
+            <Slot
+              class={headerClass}
+              style={headerStyle}
+              tag={headerTag}
+              event={EVENT_TYPE.SLOT}
+              uniqueKey={SLOT_TYPE.HEADER}
+            >
+              {header()}
+            </Slot>
+          )}
 
-          // main list
-          h(
-            wrapTag,
-            {
-              class: wrapClass,
-              style: wrapperStyle,
-            },
-            getRenderSlots(),
-          ),
+          {/* main list */}
+          <WrapTag class={wrapClass} style={wrapperStyle}>
+            {getRenderSlots()}
+          </WrapTag>
 
-          // footer slot
-          footer
-            ? h(
-                Slot,
-                {
-                  class: footerClass,
-                  style: footerStyle,
-                  // props: {
-                  tag: footerTag,
-                  event: EVENT_TYPE.SLOT,
-                  uniqueKey: SLOT_TYPE.FOOTER,
-                  // },
-                },
-                footer,
-              )
-            : null,
+          {/* footer slot */}
+          {footer && (
+            <Slot
+              class={footerClass}
+              style={footerStyle}
+              tag={footerTag}
+              event={EVENT_TYPE.SLOT}
+              uniqueKey={SLOT_TYPE.FOOTER}
+            >
+              {footer()}
+            </Slot>
+          )}
 
-          // an empty element use to scroll to bottom
-          h('div', {
-            ref: shepherd,
-            style: {
+          {/* an empty element use to scroll to bottom */}
+          <div
+            ref={shepherd}
+            style={{
               width: isHorizontal.value ? '0px' : '100%',
               height: isHorizontal.value ? '100%' : '0px',
-            },
-          }),
-        ],
+            }}
+          />
+        </RootTag>
       );
     };
   },
