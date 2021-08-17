@@ -1,6 +1,6 @@
 {
   "name": "vue3-virtual-scroll-list",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "A vue3 component support big amount data list with high scroll performance.",
   "main": "dist/index.js",
   "scripts": {
