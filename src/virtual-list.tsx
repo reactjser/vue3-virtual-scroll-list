@@ -1,22 +1,19 @@
 import {
-  computed,
   defineComponent,
-  h,
   onActivated,
   onBeforeMount,
   onMounted,
+  onUnmounted,
   ref,
   watch,
 } from 'vue';
 import Virtual from './virtual';
 import { Item, Slot } from './item';
 import { VirtualProps } from './props';
-// TODO: remove this
-import emitter from 'tiny-emitter/instance';
 
 enum EVENT_TYPE {
-  ITEM = 'item_resize',
-  SLOT = 'slot_resize',
+  ITEM = 'itemResize',
+  SLOT = 'slotResize',
 }
 
 enum SLOT_TYPE {
@@ -24,18 +21,22 @@ enum SLOT_TYPE {
   FOOTER = 'tfoot',
 }
 
+interface Range {
+  start: number;
+  end: number;
+  padFront: number;
+  padBehind: number;
+}
+
 export default defineComponent({
   name: 'VirtualList',
   props: VirtualProps,
   setup(props, { emit, slots, expose }) {
-    // TODO: TS
-    const range = ref<any>(null);
+    const isHorizontal = props.direction === 'horizontal';
+    const directionKey = isHorizontal ? 'scrollLeft' : 'scrollTop';
+    const range = ref<Range | null>(null);
     const root = ref<HTMLElement | null>();
     const shepherd = ref<HTMLDivElement | null>(null);
-    const isHorizontal = computed(() => props.direction === 'horizontal');
-    const directionKey = computed(() =>
-      isHorizontal.value ? 'scrollLeft' : 'scrollTop',
-    );
     let virtual: Virtual;
 
     /**
@@ -69,19 +70,22 @@ export default defineComponent({
     /**
      * methods
      */
+    // get item size by id
+    const getSize = (id) => {
+      return virtual.sizes.get(id);
+    };
     const getOffset = () => {
       if (props.pageMode) {
         return (
-          document.documentElement[directionKey.value] ||
-          document.body[directionKey.value]
+          document.documentElement[directionKey] || document.body[directionKey]
         );
       } else {
-        return root.value ? Math.ceil(root.value[directionKey.value]) : 0;
+        return root.value ? Math.ceil(root.value[directionKey]) : 0;
       }
     };
     // return client viewport size
     const getClientSize = () => {
-      const key = isHorizontal.value ? 'clientWidth' : 'clientHeight';
+      const key = isHorizontal ? 'clientWidth' : 'clientHeight';
       if (props.pageMode) {
         return document.documentElement[key] || document.body[key];
       } else {
@@ -90,7 +94,7 @@ export default defineComponent({
     };
     // return all scroll size
     const getScrollSize = () => {
-      const key = isHorizontal.value ? 'scrollWidth' : 'scrollHeight';
+      const key = isHorizontal ? 'scrollWidth' : 'scrollHeight';
       if (props.pageMode) {
         return document.documentElement[key] || document.body[key];
       } else {
@@ -167,11 +171,11 @@ export default defineComponent({
     // set current scroll position to a expectant offset
     const scrollToOffset = (offset: number) => {
       if (props.pageMode) {
-        document.body[directionKey.value] = offset;
-        document.documentElement[directionKey.value] = offset;
+        document.body[directionKey] = offset;
+        document.documentElement[directionKey] = offset;
       } else {
         if (root.value) {
-          root.value[directionKey.value] = offset;
+          root.value[directionKey] = offset;
         }
       }
     };
@@ -204,7 +208,7 @@ export default defineComponent({
                 index={index}
                 tag={itemTag}
                 event={EVENT_TYPE.ITEM}
-                horizontal={isHorizontal.value}
+                horizontal={isHorizontal}
                 uniqueKey={uniqueKey}
                 source={dataSource}
                 extraProps={extraProps}
@@ -214,6 +218,7 @@ export default defineComponent({
                 class={`${itemClass}${
                   props.itemClassAdd ? ' ' + props.itemClassAdd(index) : ''
                 }`}
+                onItemResize={onItemResized}
               />,
             );
           } else {
@@ -247,19 +252,47 @@ export default defineComponent({
       }
     };
 
+    // set current scroll position to bottom
+    const scrollToBottom = () => {
+      if (shepherd.value) {
+        const offset =
+          shepherd.value[isHorizontal ? 'offsetLeft' : 'offsetTop'];
+        scrollToOffset(offset);
+
+        // check if it's really scrolled to the bottom
+        // maybe list doesn't render and calculate to last range
+        // so we need retry in next event loop until it really at bottom
+        setTimeout(() => {
+          if (getOffset() + getClientSize() < getScrollSize()) {
+            scrollToBottom();
+          }
+        }, 3);
+      }
+    };
+
+    // when using page mode we need update slot header size manually
+    // taking root offset relative to the browser as slot header size
+    const updatePageModeFront = () => {
+      if (root.value) {
+        const rect = root.value.getBoundingClientRect();
+        const { defaultView } = root.value.ownerDocument;
+        const offsetFront = isHorizontal
+          ? rect.left + defaultView!.pageXOffset
+          : rect.top + defaultView!.pageYOffset;
+        virtual.updateParam('slotHeaderSize', offsetFront);
+      }
+    };
+
+    // get the total number of stored (rendered) items
+    const getSizes = () => {
+      return virtual.sizes.size;
+    };
+
     /**
      * life cycles
      */
     onBeforeMount(() => {
       installVirtual();
-
-      // listen item size change
-      emitter.on(EVENT_TYPE.ITEM, onItemResized);
-
-      // listen slot size change
-      if (slots.header || slots.footer) {
-        emitter.on(EVENT_TYPE.SLOT, onSlotResized);
-      }
     });
 
     // set back offset when awake from keep-alive
@@ -277,38 +310,23 @@ export default defineComponent({
 
       // in page mode we bind scroll event to document
       if (props.pageMode) {
-        // todo
+        updatePageModeFront();
+        document.addEventListener('scroll', onScroll, {
+          passive: false,
+        });
       }
     });
 
-    // set current scroll position to bottom
-    const scrollToBottom = () => {
-      if (shepherd.value) {
-        const offset =
-          shepherd.value[isHorizontal.value ? 'offsetLeft' : 'offsetTop'];
-        scrollToOffset(offset);
-
-        // check if it's really scrolled to the bottom
-        // maybe list doesn't render and calculate to last range
-        // so we need retry in next event loop until it really at bottom
-        setTimeout(() => {
-          if (getOffset() + getClientSize() < getScrollSize()) {
-            scrollToBottom();
-          }
-        }, 3);
+    onUnmounted(() => {
+      virtual.destroy();
+      if (props.pageMode) {
+        document.removeEventListener('scroll', onScroll);
       }
-    };
+    });
 
-    // get the total number of stored (rendered) items
-    const getSizes = () => {
-      return virtual.sizes.size;
-    };
-
-    // get item size by id
-    const getSize = (id) => {
-      return virtual.sizes.get(id);
-    };
-
+    /**
+     * public methods
+     */
     expose({
       scrollToBottom,
       getSizes,
@@ -333,9 +351,9 @@ export default defineComponent({
         footerClass,
         footerStyle,
       } = props;
-      const { padFront, padBehind } = range.value;
+      const { padFront, padBehind } = range.value!;
       const paddingStyle = {
-        padding: isHorizontal.value
+        padding: isHorizontal
           ? `0px ${padBehind}px 0px ${padFront}px`
           : `${padFront}px 0px ${padBehind}px`,
       };
@@ -354,6 +372,7 @@ export default defineComponent({
               tag={headerTag}
               event={EVENT_TYPE.SLOT}
               uniqueKey={SLOT_TYPE.HEADER}
+              onSlotResize={onSlotResized}
             >
               {header()}
             </Slot>
@@ -372,6 +391,7 @@ export default defineComponent({
               tag={footerTag}
               event={EVENT_TYPE.SLOT}
               uniqueKey={SLOT_TYPE.FOOTER}
+              onSlotResize={onSlotResized}
             >
               {footer()}
             </Slot>
@@ -381,8 +401,8 @@ export default defineComponent({
           <div
             ref={shepherd}
             style={{
-              width: isHorizontal.value ? '0px' : '100%',
-              height: isHorizontal.value ? '100%' : '0px',
+              width: isHorizontal ? '0px' : '100%',
+              height: isHorizontal ? '100%' : '0px',
             }}
           />
         </RootTag>

@@ -7,11 +7,13 @@ import {
   ref,
   Ref,
 } from 'vue';
-// TODO: remove this
-import emitter from 'tiny-emitter/instance';
 import { ItemProps, SlotProps } from './props';
 
-const useResizeChange = (props: any, rootRef: Ref<HTMLElement | null>) => {
+const useResizeChange = (
+  props: any,
+  rootRef: Ref<HTMLElement | null>,
+  emit: any,
+) => {
   let resizeObserver: ResizeObserver | null = null;
   const shapeKey = computed(() =>
     props.horizontal ? 'offsetWidth' : 'offsetHeight',
@@ -24,7 +26,7 @@ const useResizeChange = (props: any, rootRef: Ref<HTMLElement | null>) => {
   // tell parent current size identify by unqiue key
   const dispatchSizeChange = () => {
     const { event, uniqueKey, hasInitial } = props;
-    emitter.emit(event, uniqueKey, getCurrentSize(), hasInitial);
+    emit(event, uniqueKey, getCurrentSize(), hasInitial);
   };
 
   onMounted(() => {
@@ -51,9 +53,10 @@ const useResizeChange = (props: any, rootRef: Ref<HTMLElement | null>) => {
 export const Item = defineComponent({
   name: 'VirtualListItem',
   props: ItemProps,
-  setup(props) {
+  emits: ['itemResize'],
+  setup(props, { emit }) {
     const rootRef = ref<HTMLElement | null>(null);
-    useResizeChange(props, rootRef);
+    useResizeChange(props, rootRef, emit);
 
     return () => {
       const {
@@ -83,9 +86,10 @@ export const Item = defineComponent({
 export const Slot = defineComponent({
   name: 'VirtualListSlot',
   props: SlotProps,
-  setup(props, { slots }) {
+  emits: ['slotResize'],
+  setup(props, { slots, emit }) {
     const rootRef = ref<HTMLElement | null>(null);
-    useResizeChange(props, rootRef);
+    useResizeChange(props, rootRef, emit);
 
     return () => {
       const { tag: Tag, uniqueKey } = props;
