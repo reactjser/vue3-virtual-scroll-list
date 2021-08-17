@@ -156,7 +156,6 @@ export default defineComponent({
     };
     // set current scroll position to a expectant index
     const scrollToIndex = (index: number) => {
-      console.log(index);
       // scroll to bottom
       if (index >= props.dataSources.length - 1) {
         scrollToBottom();

@@ -24,7 +24,6 @@ const useResizeChange = (props: any, rootRef: Ref<HTMLElement | null>) => {
   // tell parent current size identify by unqiue key
   const dispatchSizeChange = () => {
     const { event, uniqueKey, hasInitial } = props;
-    console.log(getCurrentSize());
     emitter.emit(event, uniqueKey, getCurrentSize(), hasInitial);
   };
 
