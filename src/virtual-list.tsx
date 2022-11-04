@@ -331,6 +331,7 @@ export default defineComponent({
       scrollToBottom,
       getSizes,
       getSize,
+      getOffset,
       getScrollSize,
       getClientSize,
       scrollToOffset,
