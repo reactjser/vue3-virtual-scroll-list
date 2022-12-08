@@ -38,6 +38,7 @@ export default defineComponent({
     const root = ref<HTMLElement | null>();
     const shepherd = ref<HTMLDivElement | null>(null);
     let virtual: Virtual;
+    const virtualRef: Ref<Virtual | null> = ref(null);
 
     /**
      * watch
@@ -74,6 +75,7 @@ export default defineComponent({
     const getSize = (id) => {
       return virtual.sizes.get(id);
     };
+
     const getOffset = () => {
       if (props.pageMode) {
         return (
@@ -154,6 +156,8 @@ export default defineComponent({
         },
         onRangeChanged,
       );
+
+      virtualRef.value = virtual;
 
       // sync initial range
       range.value = virtual.getRange();
@@ -336,6 +340,7 @@ export default defineComponent({
       getClientSize,
       scrollToOffset,
       scrollToIndex,
+      virtual: virtualRef,
     });
 
     return () => {
